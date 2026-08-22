@@ -1,0 +1,24 @@
+PUBLICAR LA BIBLIA COMO APLICACION INSTALABLE (PWA)
+====================================================
+
+Sube TODOS los archivos de esta carpeta (los 10) a un
+alojamiento web gratuito. No cambies los nombres.
+
+OPCION A - Netlify Drop (la mas rapida)
+   1. Entra a  https://app.netlify.com/drop
+   2. Arrastra esta carpeta completa a la pagina
+   3. Te da una direccion tipo  https://algo.netlify.app
+   4. Abre esa direccion en cualquier dispositivo e instala
+
+OPCION B - GitHub Pages (gratis y permanente)
+   1. Crea una cuenta en github.com
+   2. Crea un repositorio nuevo, publico
+   3. Sube todos los archivos de esta carpeta
+   4. Settings > Pages > Branch: main > Save
+   5. En unos minutos te da la direccion
+
+Una vez publicada, en cada dispositivo:
+   Windows/Android (Chrome o Edge): boton "Instalar app"
+   iPhone/iPad (Safari):  Compartir > Anadir a pantalla de inicio
+
+Despues de instalarla, funciona SIN INTERNET.
