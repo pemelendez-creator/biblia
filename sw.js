@@ -1,11 +1,12 @@
 /* Service worker de la Biblia de Estudio RV1909 — Iglesia Pentecostal El Bosque
    Guarda la aplicación completa en el dispositivo para que funcione sin internet. */
 
-const CACHE = 'biblia-ipb-v1';
+const CACHE = 'biblia-ipb-v2';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './sermones.json',
   './favicon-256.png',
   './apple-touch-icon.png',
   './icon-192.png',
@@ -36,6 +37,21 @@ self.addEventListener('activate', e => {
 // Al pedir un archivo: servir primero desde el dispositivo (rápido y sin internet)
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  // Sermones publicados: primero internet (para ver los nuevos), y si no hay, la copia guardada
+  if (new URL(e.request.url).pathname.endsWith('/sermones.json')) {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-store' })
+        .then(res => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put('./sermones.json', copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match('./sermones.json', { ignoreSearch: true }))
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(hit => {
       if (hit) return hit;
