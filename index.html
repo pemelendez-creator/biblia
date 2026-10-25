@@ -403,6 +403,13 @@ footer b{color:var(--green);}
 #menuBtn{display:none; font-family:inherit; background:transparent; color:#e8dcc4; border:1px solid rgba(240,225,195,.35); border-radius:6px; padding:6px 10px; cursor:pointer;}
 footer a{color:inherit;text-decoration:underline;}
 
+.sm-refresh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 12px;}
+.sm-refresh button{font-family:inherit;font-size:.85rem;padding:7px 16px;border:1px solid var(--line);border-radius:18px;background:var(--panel);color:var(--ink);cursor:pointer;}
+.sm-refresh button:disabled{opacity:.6;cursor:default;}
+.sm-refresh span{font-size:.8rem;}
+#nuevaVer{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9999;background:#2c4a2e;color:#f3e9d8;padding:11px 18px;border-radius:24px;box-shadow:0 4px 18px rgba(0,0,0,.3);font-size:.88rem;display:flex;align-items:center;gap:10px;max-width:92vw;}
+#nuevaVer button{font-family:inherit;font-size:.85rem;padding:5px 14px;border:none;border-radius:16px;background:var(--gold);color:#2b2620;cursor:pointer;font-weight:bold;}
+
 .dfuente{font-size:.62rem;font-weight:normal;color:#fff;padding:2px 8px;border-radius:10px;vertical-align:middle;margin-left:6px;letter-spacing:.3px;}
 .dnombre{font-style:italic;color:var(--ink-soft);font-size:.95rem;margin-bottom:4px;}
 .dentry a.inref{color:var(--blue);cursor:pointer;border-bottom:1px dotted var(--blue);}
@@ -724,6 +731,10 @@ Fecha: </textarea>
     <div class="desc">Mensajes predicados en la Iglesia Pentecostal El Bosque. Toca <b>Leer</b> para estudiarlos o <b>Predicar</b> para verlos en letra grande.</div>
     <input class="sm-search" id="smSearch" placeholder="Buscar por título, pasaje o palabra…" oninput="renderSermView()">
     <div class="apsec">Sermones de la iglesia</div>
+    <div class="sm-refresh">
+      <button onclick="refrescarSermones(true)" id="smRefBtn">🔄 Buscar sermones nuevos</button>
+      <span id="smRefMsg" class="muted"></span>
+    </div>
     <div id="smPubList"><p class="muted">Cargando…</p></div>
     <div class="apsec">Mis sermones privados <span style="text-transform:none;letter-spacing:0;font-weight:normal">· 🔒 solo los ves tú, en este dispositivo</span></div>
     <div class="sm-tools">
@@ -2235,11 +2246,87 @@ renderChapter();
 window.addEventListener('beforeunload', saveLocalData);
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden) saveLocalData(); });
 
+
+/* ===== SERMONES: mantener la lista al día en todos los dispositivos ===== */
+/* Una app instalada en el móvil no se recarga: se reanuda. Por eso hay que
+   volver a pedir la lista al volver a ella, y además borrar cualquier copia
+   que un service worker antiguo haya dejado guardada. */
+let _refSerm = 0;
+function purgarCacheSermones(){
+  if(!('caches' in window)) return Promise.resolve();
+  return caches.keys()
+    .then(ks => Promise.all(ks.map(k =>
+      caches.open(k).then(c => c.delete('./sermones.json', {ignoreSearch:true})
+        .then(()=>c.delete(SM_FILE, {ignoreSearch:true})).catch(()=>{})))))
+    .catch(()=>{});
+}
+function refrescarSermones(manual){
+  const ahora = Date.now();
+  if(!manual && ahora - _refSerm < 20000) return Promise.resolve();   // no abusar
+  _refSerm = ahora;
+  const btn = document.getElementById('smRefBtn');
+  const msg = document.getElementById('smRefMsg');
+  const antes = PUB_SERMONS.length;
+  if(manual && btn){ btn.disabled = true; btn.textContent = '⏳ Buscando…'; }
+  return purgarCacheSermones()
+    .then(() => fetch(SM_FILE + '?t=' + ahora, {cache:'no-store'}))
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+    .then(d => {
+      PUB_SERMONS = Array.isArray(d) ? d : [];
+      SM_PUB_LOADED = true;
+      renderSermView();
+      const nuevos = PUB_SERMONS.length - antes;
+      if(msg) msg.textContent = nuevos > 0
+        ? `✅ ${nuevos} sermón${nuevos===1?'':'es'} nuevo${nuevos===1?'':'s'}`
+        : `Al día · ${PUB_SERMONS.length} sermones · ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}`;
+    })
+    .catch(e => { if(msg) msg.textContent = 'Sin conexión · se muestran los guardados'; })
+    .then(() => { if(btn){ btn.disabled = false; btn.textContent = '🔄 Buscar sermones nuevos'; } });
+}
+/* Al volver a la app y al abrir la pestaña de Sermones */
+document.addEventListener('visibilitychange', () => { if(!document.hidden) refrescarSermones(false); });
+window.addEventListener('focus', () => refrescarSermones(false));
+window.addEventListener('online', () => refrescarSermones(true));
+
+/* ===== Avisar cuando hay una versión nueva de la app ===== */
+function avisarVersionNueva(reg){
+  if(document.getElementById('nuevaVer')) return;
+  const d = document.createElement('div');
+  d.id = 'nuevaVer';
+  d.innerHTML = 'Hay una versión nueva de la Biblia. ' +
+    '<button onclick="aplicarVersionNueva()">Actualizar ahora</button>';
+  document.body.appendChild(d);
+  window.__swReg = reg;
+}
+function aplicarVersionNueva(){
+  const reg = window.__swReg;
+  const esperando = reg && (reg.waiting || reg.installing);
+  if(esperando && esperando.postMessage) esperando.postMessage({type:'SKIP_WAITING'});
+  setTimeout(()=>location.reload(true), 300);
+}
+
 /* ===== INSTALACIÓN COMO APLICACIÓN (PWA) ===== */
 (function(){
   const servida = location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1';
   if(servida && 'serviceWorker' in navigator){
-    window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('sw.js').then(reg=>{
+        // buscar versión nueva al abrir y cada vez que se vuelve a la app
+        reg.update().catch(()=>{});
+        document.addEventListener('visibilitychange',()=>{ if(!document.hidden) reg.update().catch(()=>{}); });
+        setInterval(()=>reg.update().catch(()=>{}), 60*60*1000);
+        reg.addEventListener('updatefound',()=>{
+          const sw=reg.installing; if(!sw) return;
+          sw.addEventListener('statechange',()=>{
+            if(sw.state==='installed' && navigator.serviceWorker.controller) avisarVersionNueva(reg);
+          });
+        });
+      }).catch(()=>{});
+      let recargado=false;
+      navigator.serviceWorker.addEventListener('controllerchange',()=>{
+        if(recargado) return; recargado=true; location.reload();
+      });
+    });
   }
   // Botón «Instalar» en el encabezado cuando el navegador lo permite
   let promptEvt=null;
