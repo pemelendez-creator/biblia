@@ -416,6 +416,12 @@ footer a{color:inherit;text-decoration:underline;}
 #smDiag .dg.err{border-left:3px solid #a33;background:rgba(170,51,51,.09);}
 #smDiag code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:.92em;}
 
+.sm-aviso{background:rgba(176,138,62,.14);border-left:3px solid var(--gold);border-radius:7px;padding:10px 13px;margin:8px 0 12px;font-size:.86rem;line-height:1.55;}
+#smEstadoBox .dg{font-size:.85rem;line-height:1.55;padding:7px 10px;border-radius:7px;margin-bottom:6px;background:var(--chip);}
+#smEstadoBox .bien{color:#2a6a4a;font-weight:bold;}
+#smEstadoBox .mal{color:#a33;font-weight:bold;}
+.srvcard .srvres{font-size:.85rem;color:var(--ink-soft);line-height:1.55;margin-top:6px;}
+
 .dfuente{font-size:.62rem;font-weight:normal;color:#fff;padding:2px 8px;border-radius:10px;vertical-align:middle;margin-left:6px;letter-spacing:.3px;}
 .dnombre{font-style:italic;color:var(--ink-soft);font-size:.95rem;margin-bottom:4px;}
 .dentry a.inref{color:var(--blue);cursor:pointer;border-bottom:1px dotted var(--blue);}
@@ -736,13 +742,14 @@ Fecha: </textarea>
     <h2>🎤 Sermones</h2>
     <div class="desc">Mensajes predicados en la Iglesia Pentecostal El Bosque. Toca <b>Leer</b> para estudiarlos o <b>Predicar</b> para verlos en letra grande.</div>
     <input class="sm-search" id="smSearch" placeholder="Buscar por título, pasaje o palabra…" oninput="renderSermView()">
-    <div class="apsec">Sermones de la iglesia</div>
+    <div class="apsec" id="smPubTit">Sermones de la iglesia</div>
     <div class="sm-refresh">
       <button onclick="refrescarSermones(true)" id="smRefBtn">🔄 Buscar sermones nuevos</button>
       <span id="smRefMsg" class="muted"></span>
+      <button onclick="smEstado()">🩺 Estado de este dispositivo</button>
     </div>
     <div id="smPubList"><p class="muted">Cargando…</p></div>
-    <div class="apsec">Mis sermones privados <span style="text-transform:none;letter-spacing:0;font-weight:normal">· 🔒 solo los ves tú, en este dispositivo</span></div>
+    <div class="apsec" id="smMyTit">Mis sermones privados <span style="text-transform:none;letter-spacing:0;font-weight:normal">· 🔒 solo los ves tú, en este dispositivo</span></div><div id="smAvisoPub"></div>
     <div class="sm-tools">
       <button class="pri" onclick="smEdit()">＋ Nuevo sermón</button>
       <label>📂 Importar sermón<input type="file" accept=".json,application/json" style="display:none" onchange="smImport(event)"></label>
@@ -1169,12 +1176,15 @@ function renderSrvList(){
   const el=document.getElementById('srvList'); if(!el) return;
   el.innerHTML = SERMONS.length ? [...SERMONS].reverse().map((s,ri)=>{
     const i=SERMONS.length-1-ri;
-    const pts=s.puntos.map(p=>`<li>${esc(p)}</li>`).join('');
+    // Los sermones del editor nuevo traen «contenido» y ya no traen «puntos».
+    const pts=(s.puntos||[]).map(p=>`<li>${esc(p)}</li>`).join('');
+    const resumen=(!pts && s.contenido)
+      ? `<p class="srvres">${esc(String(s.contenido).replace(/^#+\s*/gm,'').replace(/\s+/g,' ').trim().slice(0,160))}…</p>` : '';
     return `<div class="srvcard">
       <button class="rm" onclick="SERMONS.splice(${i},1);saveLocalData();renderSrvList()">Borrar</button>
       <h4>${esc(s.titulo)}</h4>
       <div class="srvmeta">${s.texto_ref?`📖 ${s.texto_ref} · `:''} ${s.fecha||''}</div>
-      ${pts?`<ul>${pts}</ul>`:''}
+      ${pts?`<ul>${pts}</ul>`:resumen}
     </div>`;
   }).join('') : '<p class="muted">No hay sermones aún. Completa el formulario para agregar uno.</p>';
 }
@@ -1265,6 +1275,7 @@ function renderSermView(){
         <button onclick="smDelete('${id}')">🗑️</button>
       </div></div>`; }).join('') : '<p class="muted">No tienes sermones privados. Crea uno nuevo o importa un archivo de sermón.</p>';
   }
+  smActualizarContadores();
 }
 
 /* ----- Lector y modo púlpito ----- */
@@ -2292,19 +2303,99 @@ function printBoletin(){
 }
 
 /* ===== INIT ===== */
-loadLocalData();
-buildSidebar();
-document.getElementById('optBook').innerHTML='<option value="-1">Todos</option>'+B.map((b,i)=>`<option value="${i}">${b.n}</option>`).join('');
-buildAbc(); renderDicc(); buildCtxGrid(); buildTimeline(); buildTemas();
-buildMap(); buildPesos(); buildNombres();
-{ const g=document.getElementById('genNotes'); if(g) g.value=GEN; }
-renderBkList(); renderSrvList(); renderMemList(); renderApuntes();
-renderChapter();
-/* Red de seguridad: guardar antes de cerrar o cambiar de pestaña */
-window.addEventListener('beforeunload', saveLocalData);
-document.addEventListener('visibilitychange', ()=>{ if(document.hidden) saveLocalData(); });
+/* Arranque a prueba de fallos: si una parte falla, las demás siguen funcionando.
+   Antes, un solo error aquí dejaba sin cargar los sermones, el guardado automático
+   de los apuntes y hasta el capítulo de lectura. */
+function _paso(nombre, fn){
+  try{ fn(); }
+  catch(e){
+    console.error('[arranque] falló «'+nombre+'»:', e && e.message);
+    (window.__fallos = window.__fallos || []).push(nombre+': '+(e && e.message));
+  }
+}
+_paso('preferencias',   ()=>loadLocalData());
+/* El guardado automático se registra lo primero: es lo que protege los apuntes. */
+window.addEventListener('beforeunload', ()=>{ try{ saveLocalData(); }catch(e){} });
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ try{ saveLocalData(); }catch(e){} } });
+_paso('lista de libros', ()=>buildSidebar());
+_paso('selector de libros', ()=>{ const o=document.getElementById('optBook');
+  if(o) o.innerHTML='<option value="-1">Todos</option>'+B.map((b,i)=>`<option value="${i}">${b.n}</option>`).join(''); });
+_paso('diccionario',   ()=>{ buildAbc(); renderDicc(); });
+_paso('contexto',      ()=>{ buildCtxGrid(); buildTimeline(); buildTemas(); });
+_paso('recursos',      ()=>{ buildMap(); buildPesos(); buildNombres(); });
+_paso('cuaderno',      ()=>{ const g=document.getElementById('genNotes'); if(g) g.value=GEN; });
+_paso('marcadores',    ()=>renderBkList());
+_paso('sermones (apuntes)', ()=>renderSrvList());
+_paso('memorizar',     ()=>renderMemList());
+_paso('apuntes',       ()=>renderApuntes());
+_paso('lectura',       ()=>renderChapter());
 
 
+
+
+/* ===== Contadores y aviso de sermones sin publicar ===== */
+function smActualizarContadores(){
+  const tp=document.getElementById('smPubTit');
+  if(tp) tp.firstChild.nodeValue = `Sermones de la iglesia (${PUB_SERMONS.length}) `;
+  const tm=document.getElementById('smMyTit');
+  if(tm) tm.firstChild.nodeValue = `Mis sermones privados (${SERMONS.length}) `;
+  const av=document.getElementById('smAvisoPub');
+  if(!av) return;
+  const sinPub = SERMONS.filter(x=>!PUB_SERMONS.some(p=>String(p.id)===String(x.id)));
+  av.innerHTML = sinPub.length ? `<div class="sm-aviso">⚠️ Tienes <b>${sinPub.length} sermón${sinPub.length===1?'':'es'}
+    sin publicar</b>: ${sinPub.slice(0,3).map(x=>'«'+esc(x.titulo)+'»').join(', ')}${sinPub.length>3?'…':''}.<br>
+    Guardarlo no basta: la iglesia solo lo ve cuando pulsas <b>📢 Ya lo prediqué: publicar</b>.</div>` : '';
+}
+
+/* ===== Qué está viendo este dispositivo exactamente ===== */
+async function smEstado(){
+  const L=[];
+  L.push(`<b>Sermones de la iglesia que ve este aparato:</b> ${PUB_SERMONS.length}`);
+  L.push(`<b>Sermones privados en este aparato:</b> ${SERMONS.length}`);
+  const sinPub = SERMONS.filter(x=>!PUB_SERMONS.some(p=>String(p.id)===String(x.id)));
+  if(sinPub.length) L.push(`<span class="mal">Sin publicar: ${sinPub.map(x=>'«'+esc(x.titulo)+'»').join(', ')}</span>`);
+
+  // qué hay de verdad en el servidor
+  let serv=null;
+  try{
+    const r=await fetch(SM_FILE+'?t='+Date.now(),{cache:'no-store'});
+    if(r.ok){ const d=await r.json(); serv=Array.isArray(d)?d.length:null; }
+  }catch(e){}
+  if(serv===null) L.push('<span class="mal">No se pudo consultar el servidor (sin conexión).</span>');
+  else if(serv===PUB_SERMONS.length) L.push(`<span class="bien">El servidor tiene ${serv}: este aparato está al día.</span>`);
+  else L.push(`<span class="mal">El servidor tiene <b>${serv}</b> pero este aparato muestra <b>${PUB_SERMONS.length}</b>.
+      Está mostrando una copia vieja: pulsa «Forzar actualización» abajo.</span>`);
+
+  let sw='no hay';
+  try{ const reg=await navigator.serviceWorker.getRegistration(); if(reg&&reg.active) sw='activo'; }catch(e){}
+  let cachev='ninguna';
+  try{ const ks=await caches.keys(); cachev=ks.join(', ')||'ninguna'; }catch(e){}
+  L.push(`<b>Versión guardada en el aparato:</b> ${cachev} · service worker ${sw}`);
+  L.push(`<b>Modo autor:</b> ${smToken()?'activo':'no activado en este aparato'}`);
+  if(window.__fallos && window.__fallos.length)
+    L.push(`<span class="mal">Fallos al arrancar: ${window.__fallos.join(' · ')}</span>`);
+  else L.push('<span class="bien">La aplicación arrancó completa, sin fallos.</span>');
+
+  smDlg(`<h3>🩺 Estado de este dispositivo</h3>
+    <div id="smEstadoBox">${L.map(x=>'<div class="dg">'+x+'</div>').join('')}</div>
+    <div class="help">Si un aparato muestra menos sermones que el servidor, tiene guardada una copia
+      antigua de la aplicación. El botón de abajo la borra y vuelve a descargarla; no toca tus apuntes
+      ni tus sermones privados.</div>
+    <div class="row">
+      <button class="sm-btn" onclick="smDlgClose()">Cerrar</button>
+      <button class="sm-btn pri" onclick="smForzar()">🔄 Forzar actualización</button>
+    </div>`);
+}
+
+/* Desatasca cualquier dispositivo que se quedó con una versión vieja */
+async function smForzar(){
+  const box=document.getElementById('smEstadoBox');
+  if(box) box.innerHTML='<div class="dg">⏳ Borrando la copia guardada…</div>';
+  try{ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }catch(e){}
+  try{ const rs=await navigator.serviceWorker.getRegistrations(); await Promise.all(rs.map(r=>r.unregister())); }catch(e){}
+  if(box) box.innerHTML='<div class="dg bien">✅ Listo. Volviendo a abrir la aplicación…</div>';
+  setTimeout(()=>{ location.replace(location.pathname+'?v='+Date.now()); }, 900);
+}
 
 /* ===== Salir del lector de sermones ===== */
 document.addEventListener('keydown', e => {
