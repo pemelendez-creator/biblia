@@ -410,6 +410,12 @@ footer a{color:inherit;text-decoration:underline;}
 #nuevaVer{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9999;background:#2c4a2e;color:#f3e9d8;padding:11px 18px;border-radius:24px;box-shadow:0 4px 18px rgba(0,0,0,.3);font-size:.88rem;display:flex;align-items:center;gap:10px;max-width:92vw;}
 #nuevaVer button{font-family:inherit;font-size:.85rem;padding:5px 14px;border:none;border-radius:16px;background:var(--gold);color:#2b2620;cursor:pointer;font-weight:bold;}
 
+#smDiag{margin-top:12px;}
+#smDiag .dg{font-size:.84rem;line-height:1.5;padding:7px 10px;border-radius:7px;margin-bottom:6px;background:var(--chip);}
+#smDiag .dg.ok{border-left:3px solid #3e6b46;}
+#smDiag .dg.err{border-left:3px solid #a33;background:rgba(170,51,51,.09);}
+#smDiag code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:.92em;}
+
 .dfuente{font-size:.62rem;font-weight:normal;color:#fff;padding:2px 8px;border-radius:10px;vertical-align:middle;margin-left:6px;letter-spacing:.3px;}
 .dnombre{font-style:italic;color:var(--ink-soft);font-size:.95rem;margin-bottom:4px;}
 .dentry a.inref{color:var(--blue);cursor:pointer;border-bottom:1px dotted var(--blue);}
@@ -1276,7 +1282,7 @@ function smOpen(kind,id,pulpit){
     <div class="sm-body">${smMd(smContent(s))}</div>`;
   const r=document.getElementById('smReader'); r.classList.add('open'); r.scrollTop=0;
   smApplyFont(); smPulpit(!!pulpit);
-  try{ history.replaceState(null,'','#serm='+encodeURIComponent((kind==='pub'?'':'mio:')+s.id)); }catch(e){}
+  try{ history.pushState({serm:1},'','#serm='+encodeURIComponent((kind==='pub'?'':'mio:')+s.id)); }catch(e){}
 }
 function smClose(){
   smPulpit(false); document.getElementById('smReader').classList.remove('open'); SM_CUR=null;
@@ -1370,16 +1376,68 @@ function smAuthorSetup(){
       ${has?'<button class="sm-btn" onclick="smLS(\'biblia_ghtoken\',null);smDlgClose();renderSermView()">Quitar clave</button>':''}
       <button class="sm-btn" onclick="smDlgClose()">Cancelar</button>
       <button class="sm-btn pri" onclick="smTokSave()">Guardar</button>
-    </div>`);
+    </div>
+    ${has?'<div class="row"><button class="sm-btn" style="width:100%" onclick="smDiagnostico(null,false)">🩺 Probar la clave guardada</button></div>':''}
+    <div id="smDiag"></div>`);
 }
 function smTokSave(){
-  const v=document.getElementById('smTok').value.trim(); if(!v){ smDlgClose(); return; }
-  fetch('https://api.github.com/repos/'+SM_REPO,{headers:{Authorization:'Bearer '+v,Accept:'application/vnd.github+json'}})
-    .then(r=>r.json().then(j=>({ok:r.ok,j})))
-    .then(({ok,j})=>{ if(!ok) throw new Error(j.message||'Clave no válida');
-      if(j.permissions && !j.permissions.push) throw new Error('La clave no tiene permiso de escritura (Contents: Read and write).');
-      smLS('biblia_ghtoken',v); smDlgClose(); renderSermView(); alert('Modo autor activado en este dispositivo.'); })
-    .catch(e=>alert('No se pudo verificar la clave: '+e.message));
+  const v=document.getElementById('smTok').value.trim();
+  if(!v){ smDlgClose(); return; }
+  smDiagnostico(v, true);
+}
+/* Comprueba la clave paso a paso y dice exactamente qué falla. */
+async function smDiagnostico(tok, guardar){
+  const out=document.getElementById('smDiag');
+  const paso=(txt,estado)=>{ if(out) out.innerHTML += `<div class="dg ${estado}">${estado==='ok'?'✅':estado==='err'?'❌':'⏳'} ${txt}</div>`; };
+  if(out) out.innerHTML='';
+  tok = (tok||smToken()||'').trim();
+  if(!tok){ paso('No hay ninguna clave guardada en este dispositivo.','err'); return false; }
+
+  if(!navigator.onLine){ paso('Este dispositivo no tiene conexión a internet.','err'); return false; }
+  paso('Hay conexión a internet.','ok');
+
+  if(!/^(github_pat_|ghp_)/.test(tok)){
+    paso('La clave no tiene el formato de un token de GitHub (debe empezar por <b>github_pat_</b>). ¿Pegaste la clave completa?','err');
+  }
+
+  const h={Authorization:'Bearer '+tok, Accept:'application/vnd.github+json'};
+  let r;
+  try{ r = await fetch('https://api.github.com/repos/'+SM_REPO+'?t='+Date.now(),{headers:h,cache:'no-store'}); }
+  catch(e){ paso('No se pudo contactar con GitHub: '+e.message,'err'); return false; }
+
+  if(r.status===401){
+    paso('GitHub rechaza la clave: <b>está vencida o es incorrecta</b>.<br>'+
+         'Los tokens tienen fecha de caducidad. Genera uno nuevo y pégalo aquí.','err'); return false;
+  }
+  if(r.status===404){
+    paso('La clave es válida, pero <b>no tiene acceso al repositorio <code>'+SM_REPO+'</code></b>.<br>'+
+         'Al crear el token, en <b>Repository access</b> hay que elegir el repositorio <b>biblia</b>.','err'); return false;
+  }
+  if(r.status===403){
+    paso('GitHub bloqueó la petición (403). Suele ser por demasiados intentos; espera unos minutos.','err'); return false;
+  }
+  if(!r.ok){ paso('GitHub respondió '+r.status+'.','err'); return false; }
+
+  const exp=r.headers.get('github-authentication-token-expiration');
+  paso('La clave es válida'+(exp?' (vence el <b>'+exp.slice(0,10)+'</b>)':'')+'.','ok');
+
+  const j=await r.json().catch(()=>({}));
+  if(j.permissions && !j.permissions.push){
+    paso('La clave <b>solo puede leer</b>, no escribir.<br>'+
+         'En <b>Permissions → Contents</b> hay que elegir <b>Read and write</b>.','err'); return false;
+  }
+  paso('Tiene permiso de escritura.','ok');
+
+  try{
+    const c=await fetch(`https://api.github.com/repos/${SM_REPO}/contents/${SM_FILE}?ref=${SM_BRANCH}&t=`+Date.now(),{headers:h,cache:'no-store'});
+    if(c.ok) paso('Puede leer el archivo de sermones.','ok');
+    else if(c.status===404) paso('Todavía no existe <code>'+SM_FILE+'</code>; se creará al publicar el primero.','ok');
+    else { paso('No pudo leer el archivo de sermones (GitHub respondió '+c.status+').','err'); return false; }
+  }catch(e){ paso('Error al leer el archivo de sermones: '+e.message,'err'); return false; }
+
+  if(guardar){ smLS('biblia_ghtoken',tok); renderSermView(); }
+  paso('<b>Todo listo: ya puedes publicar sermones desde este dispositivo.</b>','ok');
+  return true;
 }
 function smB64enc(str){ const b=new TextEncoder().encode(str); let s=''; for(let i=0;i<b.length;i+=8192) s+=String.fromCharCode.apply(null,b.subarray(i,i+8192)); return btoa(s); }
 function smB64dec(b64){ const s=atob(b64.replace(/\s/g,'')); const b=new Uint8Array(s.length); for(let i=0;i<s.length;i++) b[i]=s.charCodeAt(i); return new TextDecoder().decode(b); }
@@ -2246,6 +2304,24 @@ renderChapter();
 window.addEventListener('beforeunload', saveLocalData);
 document.addEventListener('visibilitychange', ()=>{ if(document.hidden) saveLocalData(); });
 
+
+
+/* ===== Salir del lector de sermones ===== */
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Escape') return;
+  const dlg = document.getElementById('smDlg');
+  if(dlg && dlg.classList.contains('open')){ smDlgClose(); return; }
+  const rd = document.getElementById('smReader');
+  if(rd && rd.classList.contains('open')){ smClose(); return; }
+  if(typeof hidePop === 'function') hidePop();
+});
+/* En el móvil, el gesto o botón de «atrás» debe cerrar el sermón, no salir de la Biblia */
+window.addEventListener('popstate', () => {
+  const dlg = document.getElementById('smDlg');
+  if(dlg && dlg.classList.contains('open')){ smDlgClose(); return; }
+  const rd = document.getElementById('smReader');
+  if(rd && rd.classList.contains('open')) smClose();
+});
 
 /* ===== SERMONES: mantener la lista al día en todos los dispositivos ===== */
 /* Una app instalada en el móvil no se recarga: se reanuda. Por eso hay que
