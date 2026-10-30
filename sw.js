@@ -1,7 +1,7 @@
 /* Service worker de la Biblia de Estudio RV1909 — Iglesia Pentecostal El Bosque
    Guarda la aplicación completa en el dispositivo para que funcione sin internet. */
 
-const CACHE = 'biblia-ipb-v10';
+const CACHE = 'biblia-ipb-v11';
 const ASSETS = [
   './',
   './index.html',

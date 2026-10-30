@@ -1133,6 +1133,14 @@ function esLeerCarta(c){
   });
   return h+'</div>';
 }
+function esPablo(p){
+  let h=`<div class="es-card"><div class="es-num">EL APÓSTOL DE LOS GENTILES</div><h4 style="font-size:1.2rem">¿Quién fue Pablo?</h4><div class="es-tx">${esLink(p.intro)}</div></div>`;
+  h+=`<div class="es-card" style="border-left:3px solid var(--ipb-gold)"><div class="es-num">¿POR QUÉ ESTABA PRESO?</div><div class="es-tx" style="margin-bottom:8px">${esLink(p.preso.x)}</div>${p.preso.r.map(esRef).join('')}<div class="es-tx" style="margin:10px 0 8px">${esLink(p.preso.otras)}</div>${p.preso.r2.map(esRef).join('')}</div>`;
+  h+='<div class="apsec">Su vida, paso a paso</div><div class="es-tl">'+p.etapas.map((s,i)=>`<div class="es-card"><div class="es-num">${i+1} · ${esEsc(s.f.toUpperCase())}</div><h4 style="margin-bottom:4px">${esEsc(s.t)}</h4><div class="es-tx" style="margin-bottom:6px">${esLink(s.x)}</div>${s.r.map(esRef).join('')}</div>`).join('')+'</div>';
+  h+=`<div class="es-verso"><div class="es-num" style="margin-bottom:4px">DE SU ÚLTIMA CARTA · RVR1960</div>${esRef(p.clave[0])}<br>«${esEsc(p.clave[1])}»</div>`;
+  h+='<p class="es-meta">Las fechas son aproximadas. Lo que dice la Biblia lleva cita; lo que viene de la tradición está indicado.</p>';
+  return h;
+}
 function esCartas(e){
   let h='<button class="es-volver" onclick="esHome()">← Todos los estudios</button>'
     + esBanner('Estudios bíblicos · IPB', e.titulo, e.sub)
@@ -1160,9 +1168,10 @@ function esCartas(e){
     const next=ES_CARTA<e.cartas.length-1?`<button class="es-ref" onclick="ES_CARTA=${ES_CARTA+1};renderEstudios();esTop()">${esEsc(e.cartas[ES_CARTA+1].n)} →</button>`:'';
     h+=`<div style="display:flex;justify-content:space-between;margin-top:14px">${prev}<span></span>${next}</div>`;
   } else {
-    const tops=[['cartas','✉️ Las cartas']].concat(e.grupos&&e.grupos.length?[['grupos','🧭 Los 4 grupos']]:[]);
+    const tops=(e.pablo?[['pablo','👤 ¿Quién fue Pablo?']]:[]).concat([['cartas','✉️ Las cartas']]).concat(e.grupos&&e.grupos.length?[['grupos','🧭 Los 4 grupos']]:[]);
     h+='<div class="subtabs">'+tops.map(([k,l])=>`<button class="${ES_CTOP===k?'active':''}" onclick="ES_CTOP='${k}';renderEstudios()">${l}</button>`).join('')+'</div>';
-    if(ES_CTOP==='grupos' && e.grupos){
+    if(ES_CTOP==='pablo' && e.pablo){ h+=esPablo(e.pablo); }
+    else if(ES_CTOP==='grupos' && e.grupos){
       h+='<p class="desc">Las cartas de Pablo se agrupan según su tema y el momento en que se escribieron. Toca una carta para estudiarla.</p>';
       e.grupos.forEach(g=>{
         const cs=e.cartas.map((c,i)=>[c,i]).filter(([c])=>c.g===g.g);
