@@ -475,6 +475,14 @@ body.dark .es-badge.ok{color:#8fc596;} body.dark .es-badge.no{color:#d9b36a;}
 .es-lista .es-card:hover{border-color:var(--ipb-gold);}
 .es-volver{font-family:inherit; font-size:.82rem; background:none; border:none; color:var(--ipb-green-l); cursor:pointer; margin-bottom:8px; padding:0;}
 body.dark .es-volver{color:#9cc79f;}
+.es-in{color:var(--ipb-green-l)!important; font-weight:bold; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer;}
+body.dark .es-in{color:#9cc79f!important;}
+.es-carta{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 18px; line-height:1.75; font-size:1.02rem;}
+.es-carta p{margin:0 0 10px;}
+.es-capt{font-size:.75rem; letter-spacing:1.6px; text-transform:uppercase; color:var(--ipb-gold); border-bottom:1px solid var(--line); padding:12px 0 4px; margin-bottom:8px; font-weight:bold;}
+.es-sec{color:var(--ipb-green-l); font-size:1.02rem; margin:12px 0 6px; padding-left:10px; border-left:3px solid var(--ipb-gold);}
+body.dark .es-sec{color:#9cc79f;}
+.es-vn{color:var(--ipb-gold); font-size:.68em; font-weight:bold; margin:0 3px 0 2px; cursor:pointer;}
 @media (max-width:720px){ .es-banner{padding:12px; gap:12px;} .es-banner img,.es-banner svg{width:58px;height:58px;} .es-banner h2{font-size:1.1rem;} }
 @media print{ #view-estu .subtabs,.es-filtro,.es-volver{display:none!important;} .es-ref{background:none;color:inherit;padding:0;} }
 </style>
@@ -1100,35 +1108,80 @@ function renderEstudios(){
   h += `<div class="es-nota">Toca una cita verde para abrirla en <b>Lectura</b>. Texto bíblico: Reina-Valera 1960 © Sociedades Bíblicas en América Latina, 1960. Renovado © Sociedades Bíblicas Unidas, 1988. Utilizado con permiso. · Preparado por ${esEsc(e.autor)} · IPB</div>`;
   box.innerHTML = h;
 }
-let ES_CARTA=-1;
+let ES_CARTA=-1, ES_CT='estudio', ES_CV='rv1909', ES_CTOP='cartas';
 function esHome(){ ES_CUR=null; ES_CARTA=-1; ES_F='todos'; renderEstudios(); }
+function esTop(){ const pn=document.querySelector('#view-estu .pane'); if(pn) pn.scrollTop=0; }
+function esGrupoNombre(e,g){ const x=(e.grupos||[]).find(y=>y.g===g); return x?x.t:g; }
+function esLeerCarta(c){
+  const r=parseRef(c.clave[0]); if(!r) return '<p class="muted">No se encontró el libro.</p>';
+  const bibs=(typeof BIBLES!=='undefined'?BIBLES:[]).filter(x=>x.data&&x.data[r.b]);
+  const bib=bibs.find(x=>x.id===ES_CV)||bibs[0]; if(!bib) return '';
+  const libro=bib.data[r.b];
+  // títulos del esquema en su versículo de inicio
+  const heads={}; (c.esq||[]).forEach(([ref,t])=>{ const m=String(ref).match(/(\d+):(\d+)/); if(m) heads[m[1]+':'+m[2]]=t; });
+  let h='<div class="es-filtro">'+bibs.map(x=>`<button class="${x.id===bib.id?'on':''}" onclick="ES_CV='${x.id}';renderEstudios()">${esEsc(x.short)}</button>`).join('')+'</div>';
+  h+=`<p class="desc">Texto completo de <b>${esEsc(c.n)}</b> en ${esEsc(bib.label)}. Los títulos verdes son las secciones del esquema. Toca un número de versículo para abrirlo en Lectura.</p>`;
+  h+='<div class="es-carta">';
+  libro.c.forEach((cap,ci)=>{
+    h+=`<div class="es-capt">Capítulo ${ci+1}</div><p>`;
+    cap.forEach((v,vi)=>{
+      const hd=heads[(ci+1)+':'+(vi+1)];
+      if(hd) h+=`</p><div class="es-sec">${esEsc(hd)}</div><p>`;
+      h+=`<sup class="es-vn" onclick="goTo(${r.b},${ci},${vi+1})">${vi+1}</sup>${esEsc(v)} `;
+    });
+    h+='</p>';
+  });
+  return h+'</div>';
+}
 function esCartas(e){
-  const grupos=['todos','Doctrinal','Pastoral','Prisión','Escatológica'];
   let h='<button class="es-volver" onclick="esHome()">← Todos los estudios</button>'
     + esBanner('Estudios bíblicos · IPB', e.titulo, e.sub)
     + `<div class="es-verso"><b>${esEsc(e.versiculo[0])}</b> — «${esEsc(e.versiculo[1])}»</div>`;
   if(ES_CARTA>=0){
     const c=e.cartas[ES_CARTA];
     h+=`<button class="es-volver" onclick="ES_CARTA=-1;renderEstudios()">← Las ${e.cartas.length} cartas</button>`;
-    h+=`<div class="es-card"><div class="es-num">${esEsc(c.g.toUpperCase())} · ${c.cap} CAPÍTULO${c.cap>1?'S':''}</div><h4 style="font-size:1.3rem">${esEsc(c.n)}</h4>
-      <div class="es-wrap"><table class="es-tabla" style="margin:8px 0"><tr><th>Fecha</th><th>Escrita desde</th><th>Destinatarios</th></tr><tr><td>${esEsc(c.fecha)}</td><td>${esEsc(c.desde)}</td><td>${esEsc(c.para)}</td></tr></table></div>
-      <div class="apsec">Propósito</div><div class="es-tx">${esEsc(c.prop)}</div>
-      <div class="apsec">Temas</div><div>${c.temas.map(t=>`<span class="es-badge ok" style="margin:0 6px 6px 0">${esEsc(t)}</span>`).join('')}</div></div>`;
-    h+=`<div class="es-verso"><div class="es-num" style="margin-bottom:4px">VERSÍCULO CLAVE · RVR1960</div>${esRef(c.clave[0])}<br>«${esEsc(c.clave[1])}»</div>`;
-    h+='<div class="apsec">Esquema de la carta</div><div class="es-tl">'+c.esq.map(([r,t])=>`<div class="es-card"><h4 style="margin-bottom:6px">${esEsc(t)}</h4>${esRef(r)}</div>`).join('')+'</div>';
-    h+='<div class="apsec">Para aplicar hoy</div>'+c.apl.map(a=>`<div class="es-card" style="border-top-width:1px;border-left:3px solid var(--ipb-gold)"><div class="es-tx">${esLink(a)}</div></div>`).join('');
-    const prev=ES_CARTA>0?`<button class="es-ref" onclick="ES_CARTA=${ES_CARTA-1};renderEstudios();document.querySelector('#view-estu .pane').scrollTop=0">← ${esEsc(e.cartas[ES_CARTA-1].n)}</button>`:'';
-    const next=ES_CARTA<e.cartas.length-1?`<button class="es-ref" onclick="ES_CARTA=${ES_CARTA+1};renderEstudios();document.querySelector('#view-estu .pane').scrollTop=0">${esEsc(e.cartas[ES_CARTA+1].n)} →</button>`:'';
+    h+=`<div class="es-card"><div class="es-num">${esEsc(esGrupoNombre(e,c.g).toUpperCase())} · ${c.cap} CAPÍTULO${c.cap>1?'S':''} · ${esEsc(c.fecha)}</div><h4 style="font-size:1.35rem">${esEsc(c.n)}</h4></div>`;
+    h+='<div class="subtabs">'+[['estudio','🔎 Estudio'],['leer','📜 Leer la carta completa']].map(([k,l])=>`<button class="${ES_CT===k?'active':''}" onclick="ES_CT='${k}';renderEstudios()">${l}</button>`).join('')+'</div>';
+    if(ES_CT==='leer'){ h+=esLeerCarta(c); }
+    else {
+      h+=`<div class="es-card"><div class="apsec" style="margin-top:0">¿A quién va?</div><div class="es-tx">${esLink(c.quien||c.para)}</div>`
+        + (c.origen&&c.origen.length?`<div style="margin-top:8px"><span class="es-meta">Cómo nació esa iglesia o relación: </span>${c.origen.map(esRef).join('')}</div>`:'')
+        + `<div class="es-wrap"><table class="es-tabla" style="margin:10px 0 4px"><tr><th>Fecha</th><th>Escrita desde</th><th>Destinatarios</th></tr><tr><td>${esEsc(c.fecha)}</td><td>${esEsc(c.desde)}</td><td>${esEsc(c.para)}</td></tr></table></div>`
+        + (c.motivo?`<div class="apsec">¿Qué motivó la carta?</div><div class="es-tx">${esLink(c.motivo)}</div>`:'')
+        + `<div class="apsec">Propósito</div><div class="es-tx">${esLink(c.prop)}</div>`
+        + `<div class="apsec">Temas</div><div>${c.temas.map(t=>`<span class="es-badge ok" style="margin:0 6px 6px 0">${esEsc(t)}</span>`).join('')}</div></div>`;
+      const gr=(e.grupos||[]).find(y=>y.g===c.g);
+      if(gr) h+=`<div class="es-card" style="border-left:3px solid var(--ipb-gold)"><div class="es-num">¿POR QUÉ ES «${esEsc(gr.t.toUpperCase())}»?</div><div class="es-tx">${esLink(gr.que)}</div></div>`;
+      h+=`<div class="es-verso"><div class="es-num" style="margin-bottom:4px">VERSÍCULO CLAVE · RVR1960</div>${esRef(c.clave[0])}<br>«${esEsc(c.clave[1])}»</div>`;
+      h+='<div class="apsec">Esquema de la carta</div><div class="es-tl">'+c.esq.map(([r,t],i)=>`<div class="es-card"><h4 style="margin-bottom:6px">${esEsc(t)}</h4>${esRef(r)}${c.expl&&c.expl[i]?`<div class="es-tx" style="margin-top:6px">${esLink(c.expl[i])}</div>`:''}</div>`).join('')+'</div>';
+      h+='<div class="apsec">Para aplicar hoy</div>'+c.apl.map(a=>`<div class="es-card" style="border-top-width:1px;border-left:3px solid var(--ipb-gold)"><div class="es-tx">${esLink(a)}</div></div>`).join('');
+    }
+    const prev=ES_CARTA>0?`<button class="es-ref" onclick="ES_CARTA=${ES_CARTA-1};renderEstudios();esTop()">← ${esEsc(e.cartas[ES_CARTA-1].n)}</button>`:'';
+    const next=ES_CARTA<e.cartas.length-1?`<button class="es-ref" onclick="ES_CARTA=${ES_CARTA+1};renderEstudios();esTop()">${esEsc(e.cartas[ES_CARTA+1].n)} →</button>`:'';
     h+=`<div style="display:flex;justify-content:space-between;margin-top:14px">${prev}<span></span>${next}</div>`;
   } else {
-    h+=`<p class="desc">Toca una carta para ver su ficha, esquema, versículo clave y aplicación. No incluidas en este material: ${e.faltan.map(esEsc).join(' y ')}.</p>`;
-    h+='<div class="es-filtro">'+grupos.map(k=>`<button class="${ES_F===k?'on':''}" onclick="ES_F='${k}';renderEstudios()">${k==='todos'?'Todas':k}</button>`).join('')+'</div>';
-    h+='<div class="es-grid es-lista">';
-    e.cartas.forEach((c,i)=>{ if(ES_F!=='todos'&&c.g!==ES_F) return;
-      h+=`<div class="es-card" onclick="ES_CARTA=${i};renderEstudios();document.querySelector('#view-estu .pane').scrollTop=0"><div class="es-num">${esEsc(c.g.toUpperCase())} · ${esEsc(c.fecha)}</div><h4>${esEsc(c.n)}</h4><div class="es-tx" style="font-size:.86rem">${esEsc(c.prop)}</div><div class="es-meta"><b>${esEsc(c.clave[0])}</b></div></div>`; });
-    h+='</div>';
+    const tops=[['cartas','✉️ Las cartas']].concat(e.grupos&&e.grupos.length?[['grupos','🧭 Los 4 grupos']]:[]);
+    h+='<div class="subtabs">'+tops.map(([k,l])=>`<button class="${ES_CTOP===k?'active':''}" onclick="ES_CTOP='${k}';renderEstudios()">${l}</button>`).join('')+'</div>';
+    if(ES_CTOP==='grupos' && e.grupos){
+      h+='<p class="desc">Las cartas de Pablo se agrupan según su tema y el momento en que se escribieron. Toca una carta para estudiarla.</p>';
+      e.grupos.forEach(g=>{
+        const cs=e.cartas.map((c,i)=>[c,i]).filter(([c])=>c.g===g.g);
+        h+=`<div class="es-card"><div class="es-num">${esEsc(g.sub.toUpperCase())}</div><h4 style="font-size:1.15rem">${esEsc(g.t)}</h4>
+          <div class="es-meta" style="margin:0 0 6px">${esLink(g.cuando)}</div><div class="es-tx">${esLink(g.que)}</div>
+          <div class="es-verso" style="margin:10px 0 8px"><b>Idea central:</b> ${esEsc(g.clave)} ${esRef(g.ref)}</div>
+          <div>${cs.map(([c,i])=>`<button class="es-ref" onclick="ES_CARTA=${i};ES_CT='estudio';renderEstudios();esTop()">${esEsc(c.n)}</button>`).join('')}</div></div>`;
+      });
+    } else {
+      const grupos=['todos'].concat((e.grupos||[]).map(x=>x.g));
+      h+=`<p class="desc">Toca una carta para ver a quién va, el esquema explicado, el versículo clave y la carta completa.${e.faltan&&e.faltan.length?' No incluidas en este material: '+e.faltan.map(esEsc).join(' y ')+'.':''}</p>`;
+      h+='<div class="es-filtro">'+grupos.map(k=>`<button class="${ES_F===k?'on':''}" onclick="ES_F='${k}';renderEstudios()">${k==='todos'?'Todas':esEsc(esGrupoNombre(e,k))}</button>`).join('')+'</div>';
+      h+='<div class="es-grid es-lista">';
+      e.cartas.forEach((c,i)=>{ if(ES_F!=='todos'&&c.g!==ES_F) return;
+        h+=`<div class="es-card" onclick="ES_CARTA=${i};ES_CT='estudio';renderEstudios();esTop()"><div class="es-num">${esEsc(esGrupoNombre(e,c.g).toUpperCase())} · ${esEsc(c.fecha)}</div><h4>${esEsc(c.n)}</h4><div class="es-meta" style="margin:0 0 4px">Para: ${esEsc(c.para)}</div><div class="es-tx" style="font-size:.86rem">${esEsc(c.prop)}</div><div class="es-meta"><b>${esEsc(c.clave[0])}</b></div></div>`; });
+      h+='</div>';
+    }
   }
-  h+=`<div class="es-nota">Toca una cita verde para abrirla en <b>Lectura</b>. Resumen propio a partir del material «Cartas de Pablo» (Estudio Bíblico 2026). Texto bíblico: Reina-Valera 1960 © Sociedades Bíblicas en América Latina, 1960. Renovado © Sociedades Bíblicas Unidas, 1988. Utilizado con permiso. · Preparado por ${esEsc(e.autor)} · IPB</div>`;
+  h+=`<div class="es-nota">Toca una cita verde para abrirla en <b>Lectura</b>. Resumen propio a partir del material «Cartas de Pablo» (Estudio Bíblico 2026). Versículos clave: Reina-Valera 1960 © Sociedades Bíblicas en América Latina, 1960. Renovado © Sociedades Bíblicas Unidas, 1988. Utilizado con permiso. Carta completa: versiones de dominio público o licencia libre incluidas en la app. · Preparado por ${esEsc(e.autor)} · IPB</div>`;
   return h;
 }
 function esSeccion(e){
