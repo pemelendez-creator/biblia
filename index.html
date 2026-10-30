@@ -1023,15 +1023,17 @@ function esLoadPub(){
 }
 function esIsPub(id){ return PUB_ESTU.some(x=>String(x.id)===String(id)); }
 function esGet(kind,id){ return (kind==='pub'?PUB_ESTU:MY_ESTU).find(x=>String(x.id)===String(id)); }
-function esOpen(kind,id){ ES_CUR={kind,id}; ES_F='todos'; ES_TAB='dev'; ES_CARTA=-1; renderEstudios(); const pn=document.querySelector('#view-estu .pane'); if(pn) pn.scrollTop=0; }
+function esOpen(kind,id){ ES_PER=null; ES_CUR={kind,id}; ES_F='todos'; ES_TAB='dev'; ES_CARTA=-1; renderEstudios(); const pn=document.querySelector('#view-estu .pane'); if(pn) pn.scrollTop=0; }
 function esImport(ev){
-  const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
-  rd.onload=()=>{ try{
-      let d=JSON.parse(rd.result); if(!Array.isArray(d)) d=[d]; let n=0;
-      d.forEach(x=>{ if(!x||x.tipo!=='estudio-ipb'||!x.titulo) return; const i=MY_ESTU.findIndex(y=>String(y.id)===String(x.id)); if(i>=0) MY_ESTU[i]=x; else MY_ESTU.push(x); n++; });
-      esSaveLocal(); renderEstudios(); alert(n?`Estudio importado como privado (${n}). Solo tú lo ves en este dispositivo.`:'El archivo no contiene estudios IPB.');
-    }catch(e){ alert('No se pudo leer el archivo de estudio.'); } ev.target.value=''; };
-  rd.readAsText(f);
+  const files=[...ev.target.files]; if(!files.length) return; let n=0, bad=0, left=files.length;
+  files.forEach(f=>{ const rd=new FileReader();
+    rd.onload=()=>{ try{
+        let d=JSON.parse(rd.result); if(!Array.isArray(d)) d=[d];
+        d.forEach(x=>{ if(!x||x.tipo!=='estudio-ipb'||!x.titulo){ bad++; return; } const i=MY_ESTU.findIndex(y=>String(y.id)===String(x.id)); if(i>=0) MY_ESTU[i]=x; else MY_ESTU.push(x); n++; });
+      }catch(e){ bad++; }
+      if(--left===0){ esSaveLocal(); renderEstudios(); alert(n?`${n} estudio${n>1?'s':''} importado${n>1?'s':''} como privado${n>1?'s':''}. Solo tú los ves en este dispositivo.`+(bad?`\n(${bad} archivo${bad>1?'s':''} no era${bad>1?'n':''} un estudio IPB.)`:''):'Los archivos no contienen estudios IPB.'); ev.target.value=''; }
+    };
+    rd.readAsText(f); });
 }
 function esExport(id){ const e=esGet('my',id); if(!e) return; download('estudio-'+String(e.id)+'.json', JSON.stringify(e,null,1), 'application/json'); }
 function esDelete(id){ const e=esGet('my',id); if(!e) return;
@@ -1093,11 +1095,12 @@ function renderEstudios(){
     h += '<div class="apsec">Estudios de la iglesia</div>';
     h += !ES_PUB_LOADED ? '<p class="muted">Cargando…</p>' : (PUB_ESTU.length ? PUB_ESTU.map(x=>esCardList(x,'pub')).join('') : '<p class="muted">Aún no hay estudios publicados.</p>');
     h += '<div class="apsec">Mis estudios privados <span style="text-transform:none;letter-spacing:0;font-weight:normal">· 🔒 solo los ves tú, en este dispositivo</span></div>';
-    h += '<div class="sm-tools"><label>📂 Importar estudio<input type="file" accept=".json,application/json" style="display:none" onchange="esImport(event)"></label></div>';
+    h += '<div class="sm-tools"><label>📂 Importar estudio<input type="file" multiple accept=".json,application/json" style="display:none" onchange="esImport(event)"></label></div>';
     const mine=[...MY_ESTU].reverse();
     h += mine.length ? mine.map(x=>esCardList(x,'my')).join('') : '<p class="muted">No tienes estudios privados. Importa un archivo de estudio (.json).</p>';
     box.innerHTML=h; return;
   }
+  if(e.formato==='personajes'){ box.innerHTML=esPersonajes(e); return; }
   if(e.formato==='cartas'){ box.innerHTML=esCartas(e); return; }
   const tabs=[['dev','🙏 Devocional 30 días'],['libros','📖 66 libros'],['linea','⏳ Línea del tiempo'],['apos','✝️ 12 apóstoles'],['corr','✏️ Correcciones'],['mat','📁 Materiales']];
   let h = '<button class="es-volver" onclick="esHome()">← Todos los estudios</button>'
@@ -1132,6 +1135,37 @@ function esLeerCarta(c){
     h+='</p>';
   });
   return h+'</div>';
+}
+let ES_PER=null;
+function esFicha(p,kicker){
+  let h=`<div class="es-card"><div class="es-num">${esEsc((kicker||p.rol||'').toUpperCase())}</div><h4 style="font-size:1.3rem">${esEsc(p.n||'')}</h4>${p.rol&&kicker?`<div class="es-meta" style="margin:0 0 6px">${esEsc(p.rol)}</div>`:''}<div class="es-tx">${esLink(p.intro)}</div></div>`;
+  if(p.clave) h+=`<div class="es-verso"><div class="es-num" style="margin-bottom:4px">VERSÍCULO CLAVE · RVR1960</div>${esRef(p.clave[0])}<br>«${esEsc(p.clave[1])}»</div>`;
+  if(p.box) h+=`<div class="es-card" style="border-left:3px solid var(--ipb-gold)"><div class="es-num">${esEsc(p.box.t.toUpperCase())}</div><div class="es-tx" style="margin-bottom:8px">${esLink(p.box.x)}</div>${(p.box.r||[]).map(esRef).join('')}${p.box.x2?`<div class="es-tx" style="margin:10px 0 8px">${esLink(p.box.x2)}</div>${(p.box.r2||[]).map(esRef).join('')}`:''}</div>`;
+  h+='<div class="apsec">Su historia, paso a paso</div><div class="es-tl">'+p.etapas.map((s,i)=>`<div class="es-card"><div class="es-num">${i+1} · ${esEsc(String(s.f).toUpperCase())}</div><h4 style="margin-bottom:4px">${esEsc(s.t)}</h4><div class="es-tx" style="margin-bottom:6px">${esLink(s.x)}</div>${s.r.map(esRef).join('')}</div>`).join('')+'</div>';
+  if(p.trad) h+=`<div class="es-card" style="border-top-width:1px;border-left:3px dashed var(--ipb-gold)"><div class="es-num">TRADICIÓN (NO ESTÁ EN LA BIBLIA)</div><div class="es-tx">${esEsc(p.trad)}</div></div>`;
+  return h;
+}
+function esPersonajes(e){
+  let h='<button class="es-volver" onclick="esHome()">← Todos los estudios</button>'+esBanner('Estudios bíblicos · IPB', e.titulo, e.sub)+`<div class="es-verso"><b>${esEsc(e.versiculo[0])}</b> — «${esEsc(e.versiculo[1])}»</div>`;
+  const per=ES_PER?e.personas.find(x=>x.id===ES_PER):null;
+  if(per){
+    const g=e.grupos.find(x=>x.id===per.grupo);
+    h+=`<button class="es-volver" onclick="ES_PER=null;renderEstudios();esTop()">← ${esEsc(g?g.t:'Volver')}</button>`;
+    h+=esFicha(per, g?g.t:'');
+    const sib=e.personas.filter(x=>x.grupo===per.grupo), i=sib.indexOf(per);
+    const prev=i>0?`<button class="es-ref" onclick="ES_PER='${esA(sib[i-1].id)}';renderEstudios();esTop()">← ${esEsc(sib[i-1].n)}</button>`:'<span></span>';
+    const next=i<sib.length-1?`<button class="es-ref" onclick="ES_PER='${esA(sib[i+1].id)}';renderEstudios();esTop()">${esEsc(sib[i+1].n)} →</button>`:'<span></span>';
+    h+=`<div style="display:flex;justify-content:space-between;gap:8px;margin-top:14px">${prev}${next}</div>`;
+  } else {
+    e.grupos.forEach(g=>{
+      const ps=e.personas.filter(x=>x.grupo===g.id);
+      h+=`<div class="apsec">${esEsc(g.t)} · ${ps.length}</div><p class="desc" style="margin-bottom:10px">${esLink(g.d)}</p><div class="es-grid es-lista">`;
+      ps.forEach(p=>{ h+=`<div class="es-card" onclick="ES_PER='${esA(p.id)}';renderEstudios();esTop()"><div class="es-num">${esEsc(p.rol.toUpperCase())}</div><h4>${esEsc(p.n)}</h4><div class="es-meta"><b>${esEsc(p.clave[0])}</b></div></div>`; });
+      h+='</div>';
+    });
+  }
+  h+=`<div class="es-nota">Toca una cita verde para abrirla en <b>Lectura</b>. Versículos clave: Reina-Valera 1960 © Sociedades Bíblicas en América Latina, 1960. Renovado © Sociedades Bíblicas Unidas, 1988. Utilizado con permiso. Las fechas son aproximadas. · Preparado por ${esEsc(e.autor)} · IPB</div>`;
+  return h;
 }
 function esPablo(p){
   let h=`<div class="es-card"><div class="es-num">EL APÓSTOL DE LOS GENTILES</div><h4 style="font-size:1.2rem">¿Quién fue Pablo?</h4><div class="es-tx">${esLink(p.intro)}</div></div>`;
