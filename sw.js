@@ -1,7 +1,7 @@
 /* Service worker de la Biblia de Estudio RV1909 — Iglesia Pentecostal El Bosque
    Guarda la aplicación completa en el dispositivo para que funcione sin internet. */
 
-const CACHE = 'biblia-ipb-v7';
+const CACHE = 'biblia-ipb-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -37,18 +37,20 @@ self.addEventListener('activate', e => {
 // Al pedir un archivo: servir primero desde el dispositivo (rápido y sin internet)
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  // Sermones publicados: primero internet (para ver los nuevos), y si no hay, la copia guardada
-  if (new URL(e.request.url).pathname.endsWith('/sermones.json')) {
+  // Sermones y estudios publicados: primero internet (para ver los nuevos), y si no hay, la copia guardada
+  const _p = new URL(e.request.url).pathname;
+  const _dyn = _p.endsWith('/sermones.json') ? './sermones.json' : (_p.endsWith('/estudios.json') ? './estudios.json' : null);
+  if (_dyn) {
     e.respondWith(
       fetch(e.request, { cache: 'no-store' })
         .then(res => {
           if (res && res.status === 200) {
             const copy = res.clone();
-            caches.open(CACHE).then(c => c.put('./sermones.json', copy));
+            caches.open(CACHE).then(c => c.put(_dyn, copy));
           }
           return res;
         })
-        .catch(() => caches.match('./sermones.json', { ignoreSearch: true }))
+        .catch(() => caches.match(_dyn, { ignoreSearch: true }))
     );
     return;
   }
