@@ -805,7 +805,7 @@ Fecha: </textarea>
       <button onclick="smEstado()">🩺 Estado de este dispositivo</button>
     </div>
     <div id="smPubList"><p class="muted">Cargando…</p></div>
-    <div class="apsec" id="smMyTit">Mis sermones privados <span style="text-transform:none;letter-spacing:0;font-weight:normal">· 🔒 solo los ves tú, en este dispositivo</span></div><div id="smAvisoPub"></div>
+    <div class="apsec" id="smMyTit">Mis sermones privados <span style="text-transform:none;letter-spacing:0;font-weight:normal">· 🔒 solo los ves tú</span></div><div id="smSyncInfo" class="muted" style="font-size:.85em;margin:2px 0 6px"></div><div id="smAvisoPub"></div>
     <div class="sm-tools">
       <button class="pri" onclick="smEdit()">＋ Nuevo sermón</button>
       <label>📂 Importar sermón<input type="file" style="display:none" onchange="smImport(event)"></label>
@@ -1517,12 +1517,65 @@ function renderSrvList(){
 }
 
 /* ===== SERMONES: vista, lector, púlpito y publicación =====
-   · Mis sermones privados: se guardan solo en este dispositivo (SERMONS / localStorage).
+   · Mis sermones privados: en este dispositivo (localStorage) y, con modo autor, sincronizados en el repo privado biblia-privado.
    · Sermones de la iglesia: archivo sermones.json del sitio, visible para todos.
    · Publicar: el autor (con su clave de GitHub guardada solo en su dispositivo)
      agrega el sermón a sermones.json; GitHub Pages lo muestra a todos en ~1 minuto. */
 const SM_REPO='pemelendez-creator/biblia', SM_FILE='sermones.json', SM_BRANCH='main';
 const SM_AUTOR='Esteban Meléndez Silva', SM_IGLESIA='Iglesia Pentecostal El Bosque';
+/* Sermones privados sincronizados entre los equipos del autor (repositorio PRIVADO en GitHub) */
+const SM_PRIV_REPO='pemelendez-creator/biblia-privado', SM_PRIV_FILE='sermones-privados.json';
+let SM_SYNC={estado:'', msg:''}, SM_SYNCING=false, SM_SYNC_AGAIN=false;
+function smDelPend(){ try{ return JSON.parse(smLS('biblia_srv_del')||'[]'); }catch(e){ return []; } }
+function smSyncInfo(){
+  const el=document.getElementById('smSyncInfo'); if(!el) return;
+  const t={ok:'☁️ Sincronizado entre tus equipos', run:'⏳ Sincronizando…',
+    err:'⚠️ No se pudo sincronizar: '+esc(SM_SYNC.msg||'')+' <a href="#" onclick="smPrivSync();return false">Reintentar</a>',
+    off:'📱 Solo en este dispositivo. Activa el <b>Modo autor</b> para verlos en el PC y en el iPad.',
+    norepo:'📱 Solo en este dispositivo. Falta el repositorio privado <b>biblia-privado</b> o tu clave no tiene acceso a él (revisa en 🔑 Modo autor).'};
+  el.innerHTML=t[SM_SYNC.estado]||'';
+}
+async function smPrivSync(){
+  const tok=smToken();
+  if(!tok){ SM_SYNC={estado:'off',msg:''}; smSyncInfo(); return; }
+  if(!navigator.onLine){ SM_SYNC={estado:'err',msg:'sin internet (se sincronizará al reconectar)'}; smSyncInfo(); return; }
+  if(SM_SYNCING){ SM_SYNC_AGAIN=true; return; }
+  SM_SYNCING=true; SM_SYNC={estado:'run',msg:''}; smSyncInfo();
+  const h={Authorization:'Bearer '+tok, Accept:'application/vnd.github+json'};
+  const url=`https://api.github.com/repos/${SM_PRIV_REPO}/contents/${SM_PRIV_FILE}`;
+  try{
+    for(let intento=0; intento<3; intento++){
+      const r=await fetch(url+'?t='+Date.now(),{headers:h,cache:'no-store'});
+      let sha=null, rem={sermones:[],borrados:[]};
+      if(r.ok){ const j=await r.json(); sha=j.sha; try{ const d=JSON.parse(smB64dec(j.content)); rem={sermones:Array.isArray(d.sermones)?d.sermones:[], borrados:Array.isArray(d.borrados)?d.borrados:[]}; }catch(e){} }
+      else if(r.status===404){
+        const rr=await fetch('https://api.github.com/repos/'+SM_PRIV_REPO+'?t='+Date.now(),{headers:h,cache:'no-store'});
+        if(!rr.ok){ SM_SYNC={estado:'norepo',msg:''}; return; }
+      }
+      else if(r.status===401){ throw new Error('la clave está vencida o es incorrecta'); }
+      else throw new Error('GitHub respondió '+r.status);
+      // Unir por id: gana la versión modificada más recientemente; se respetan los borrados
+      const del=new Set([...rem.borrados, ...smDelPend()].map(String));
+      const map=new Map();
+      [...rem.sermones, ...SERMONS].forEach(x=>{ if(!x||del.has(String(x.id))) return; const k=String(x.id), o=map.get(k);
+        if(!o || (x.mod||0)>(o.mod||0)) map.set(k,x); });
+      const merged=[...map.values()].sort((a,b)=>Number(a.id)-Number(b.id));
+      const borrados=[...del].slice(-500);
+      const nuevo=JSON.stringify({sermones:merged,borrados},null,1)+'\n';
+      const viejo=JSON.stringify({sermones:rem.sermones,borrados:rem.borrados},null,1)+'\n';
+      SERMONS=merged; smLS('biblia_srv_del',null); saveLocalData(); renderSermView();
+      if(nuevo===viejo && sha){ SM_SYNC={estado:'ok',msg:''}; return; }
+      const body={message:'Sincronizar sermones privados', content:smB64enc(nuevo)}; if(sha) body.sha=sha;
+      const pu=await fetch(url,{method:'PUT',headers:Object.assign({'Content-Type':'application/json'},h),body:JSON.stringify(body)});
+      if(pu.ok){ SM_SYNC={estado:'ok',msg:''}; return; }
+      if(pu.status!==409 && pu.status!==422){ const j=await pu.json().catch(()=>({})); throw new Error(j.message||('GitHub respondió '+pu.status)); }
+    }
+    throw new Error('otro equipo estaba guardando; intenta de nuevo');
+  }catch(e){ SM_SYNC={estado:'err',msg:e.message}; }
+  finally{ SM_SYNCING=false; smSyncInfo(); if(SM_SYNC_AGAIN){ SM_SYNC_AGAIN=false; smPrivSync(); } }
+}
+window.addEventListener('online',()=>{ if(smToken()) smPrivSync(); });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && smToken()) smPrivSync(); });
 let PUB_SERMONS=[], SM_PUB_LOADED=false, SM_CUR=null, SM_TIMER=null, SM_T0=0, SM_LOCK=null;
 let SM_FS=18; try{ SM_FS=parseInt(localStorage.getItem('biblia_smfs'))||18; }catch(e){}
 
@@ -1602,7 +1655,7 @@ function renderSermView(){
         <button onclick="smDelete('${id}')">🗑️</button>
       </div></div>`; }).join('') : '<p class="muted">No tienes sermones privados. Crea uno nuevo o importa un archivo de sermón.</p>';
   }
-  smActualizarContadores();
+  smActualizarContadores(); smSyncInfo();
 }
 
 /* ----- Lector y modo púlpito ----- */
@@ -1678,13 +1731,15 @@ function smSave(id){
   const t=document.getElementById('smfT').value.trim(); if(!t){ alert('Escribe un título.'); return; }
   const data={titulo:t, texto_ref:document.getElementById('smfR').value.trim(), fecha:document.getElementById('smfF').value, contenido:document.getElementById('smfC').value, autor:SM_AUTOR};
   const s=id?SERMONS.find(x=>String(x.id)===String(id)):null;
+  data.mod=Date.now();
   if(s){ Object.assign(s,data); delete s.puntos; } else SERMONS.push(Object.assign({id:Date.now()},data));
-  saveLocalData(); smDlgClose(); renderSermView();
+  saveLocalData(); smDlgClose(); renderSermView(); smPrivSync();
 }
 function smDelete(id){
   const i=SERMONS.findIndex(x=>String(x.id)===String(id)); if(i<0) return;
-  if(!confirm(`¿Borrar "${SERMONS[i].titulo}" de este dispositivo?\n(Si está publicado, seguirá visible para la iglesia.)`)) return;
-  SERMONS.splice(i,1); saveLocalData(); renderSermView();
+  if(!confirm(`¿Borrar "${SERMONS[i].titulo}"${smToken()?' de todos tus equipos':' de este dispositivo'}?\n(Si está publicado, seguirá visible para la iglesia.)`)) return;
+  const dl=smDelPend(); dl.push(String(SERMONS[i].id)); smLS('biblia_srv_del',JSON.stringify(dl));
+  SERMONS.splice(i,1); saveLocalData(); renderSermView(); smPrivSync();
 }
 function smExport(id){
   const s=SERMONS.find(x=>String(x.id)===String(id)); if(!s) return;
@@ -1695,10 +1750,10 @@ function smImport(ev){
   const f=ev.target.files[0]; if(!f) return; const rd=new FileReader();
   rd.onload=()=>{ try{
       let d=JSON.parse(rd.result); if(!Array.isArray(d)) d=[d]; let n=0;
-      d.forEach(x=>{ if(!x||!x.titulo) return; const s={id:x.id||Date.now()+n, titulo:x.titulo, texto_ref:x.texto_ref||x.ref||'', fecha:x.fecha||'', contenido:x.contenido||'', autor:x.autor||SM_AUTOR};
+      d.forEach(x=>{ if(!x||!x.titulo) return; const s={id:x.id||Date.now()+n, titulo:x.titulo, texto_ref:x.texto_ref||x.ref||'', fecha:x.fecha||'', contenido:x.contenido||'', autor:x.autor||SM_AUTOR, mod:Date.now()};
         if(!s.contenido && x.puntos) s.puntos=x.puntos;
         const i=SERMONS.findIndex(y=>String(y.id)===String(s.id)); if(i>=0) SERMONS[i]=s; else SERMONS.push(s); n++; });
-      saveLocalData(); renderSermView(); alert(n?`Sermón importado como privado (${n}).`:'El archivo no contiene sermones.');
+      saveLocalData(); renderSermView(); if(n) smPrivSync(); alert(n?`Sermón importado como privado (${n}).${smToken()?' Aparecerá también en tus otros equipos.':''}`:'El archivo no contiene sermones.');
     }catch(e){ alert('No se pudo leer el archivo de sermón.'); } ev.target.value=''; };
   rd.readAsText(f);
 }
@@ -1708,10 +1763,10 @@ function smAuthorSetup(){
   const has=!!smToken();
   smDlg(`<h3>🔑 Modo autor</h3>
     <div class="help">Con el modo autor puedes <b>publicar</b> tus sermones para que toda la iglesia los vea en la app. La clave se guarda <b>solo en este dispositivo</b> y nadie más la ve.<br><br>
-    Cómo obtener la clave (una sola vez): en github.com → <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>. En <b>Repository access</b> elige solo <b>biblia</b>; en <b>Permissions → Contents</b> elige <b>Read and write</b>. Copia el token y pégalo aquí.</div>
+    Cómo obtener la clave (una sola vez): en github.com → <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>. En <b>Repository access</b> elige <b>biblia</b> y <b>biblia-privado</b> (este último guarda tus sermones privados para verlos en todos tus equipos); en <b>Permissions → Contents</b> elige <b>Read and write</b>. Copia el token y pégalo aquí.</div>
     <label>Clave de GitHub (token)</label><input id="smTok" type="password" placeholder="${has?'•••••••• (ya guardada)':'github_pat_…'}" autocomplete="off">
     <div class="row">
-      ${has?'<button class="sm-btn" onclick="smLS(\'biblia_ghtoken\',null);smDlgClose();renderSermView()">Quitar clave</button>':''}
+      ${has?'<button class="sm-btn" onclick="smLS(\'biblia_ghtoken\',null);smDlgClose();renderSermView();smPrivSync()">Quitar clave</button>':''}
       <button class="sm-btn" onclick="smDlgClose()">Cancelar</button>
       <button class="sm-btn pri" onclick="smTokSave()">Guardar</button>
     </div>
@@ -1773,7 +1828,15 @@ async function smDiagnostico(tok, guardar){
     else { paso('No pudo leer el archivo de sermones (GitHub respondió '+c.status+').','err'); return false; }
   }catch(e){ paso('Error al leer el archivo de sermones: '+e.message,'err'); return false; }
 
-  if(guardar){ smLS('biblia_ghtoken',tok); renderSermView(); }
+  try{
+    const pr=await fetch('https://api.github.com/repos/'+SM_PRIV_REPO+'?t='+Date.now(),{headers:h,cache:'no-store'});
+    if(pr.ok){ const pj=await pr.json().catch(()=>({}));
+      if(pj.private===false) paso('⚠️ El repositorio <b>biblia-privado</b> es <b>público</b>. Cámbialo a privado en GitHub (Settings → Danger Zone → Change visibility).','err');
+      else if(pj.permissions && !pj.permissions.push) paso('La clave solo puede leer <b>biblia-privado</b>; en Permissions → Contents elige Read and write.','err');
+      else paso('Tiene acceso al repositorio privado <b>biblia-privado</b>: tus sermones privados se verán en todos tus equipos.','ok'); }
+    else paso('No tiene acceso a <b>biblia-privado</b>. Créalo como <b>privado</b> en GitHub y agrégalo en <b>Repository access</b> de esta clave. Mientras tanto, los privados quedan solo en este dispositivo.','err');
+  }catch(e){}
+  if(guardar){ smLS('biblia_ghtoken',tok); renderSermView(); smPrivSync(); }
   paso('<b>Todo listo: ya puedes publicar sermones desde este dispositivo.</b>','ok');
   return true;
 }
@@ -1808,8 +1871,8 @@ async function smPublish(id){
 async function smUnpublish(id){
   const s=PUB_SERMONS.find(x=>String(x.id)===String(id)); if(!s) return;
   if(!confirm(`¿Retirar "${s.titulo}" de los sermones de la iglesia?\n(Tu copia privada no se borra.)`)) return;
-  if(!SERMONS.some(x=>String(x.id)===String(s.id))) SERMONS.push({id:s.id,titulo:s.titulo,texto_ref:s.ref||'',fecha:s.fechaPredicado||'',contenido:s.contenido||'',autor:s.autor||SM_AUTOR});
-  saveLocalData();
+  if(!SERMONS.some(x=>String(x.id)===String(s.id))) SERMONS.push({id:s.id,titulo:s.titulo,texto_ref:s.ref||'',fecha:s.fechaPredicado||'',contenido:s.contenido||'',autor:s.autor||SM_AUTOR,mod:Date.now()});
+  saveLocalData(); smPrivSync();
   try{ await smGhUpdate(list=>list.filter(x=>String(x.id)!==String(id)), 'Retirar sermón: '+s.titulo); }
   catch(e){ alert('No se pudo retirar: '+e.message); }
 }
@@ -2850,7 +2913,7 @@ function aplicarVersionNueva(){
   if(['lectura','conc','dicc','ctx','plan','recursos','ap','comp','serm'].includes(h)) showView(h);
 })();
 /* Sermones publicados de la iglesia (y abrir #serm=… si viene en el enlace) */
-loadPubSermons();
+loadPubSermons(); setTimeout(smPrivSync,1500);
 </script>
 </body>
 </html>
