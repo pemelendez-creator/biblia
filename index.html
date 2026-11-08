@@ -1555,13 +1555,16 @@ async function smPrivSync(){
       else if(r.status===401){ throw new Error('la clave está vencida o es incorrecta'); }
       else throw new Error('GitHub respondió '+r.status);
       // Unir por id: gana la versión modificada más recientemente; se respetan los borrados
-      const del=new Set([...rem.borrados, ...smDelPend()].map(String));
+      // Borrados con fecha: un sermón vuelve si se creó o importó DESPUÉS de borrarlo
+      const delT=new Map();
+      [...rem.borrados, ...smDelPend()].forEach(d=>{ const id=String(typeof d==='object'&&d?d.id:d), t=(typeof d==='object'&&d?d.t:0)||0; if(!delT.has(id)||t>delT.get(id)) delT.set(id,t); });
+      const borradoVence=x=>delT.has(String(x.id)) && (x.mod||0)<=delT.get(String(x.id));
       const map=new Map();
       let ls=[]; try{ ls=JSON.parse(localStorage.getItem('biblia_srv')||'[]'); if(!Array.isArray(ls)) ls=[]; }catch(e){ ls=[]; }
-      [...rem.sermones, ...ls, ...SERMONS].forEach(x=>{ if(!x||del.has(String(x.id))) return; const k=String(x.id), o=map.get(k);
+      [...rem.sermones, ...ls, ...SERMONS].forEach(x=>{ if(!x||borradoVence(x)) return; const k=String(x.id), o=map.get(k);
         if(!o || (x.mod||0)>(o.mod||0)) map.set(k,x); });
       const merged=[...map.values()].sort((a,b)=>Number(a.id)-Number(b.id));
-      const borrados=[...del].slice(-500);
+      const borrados=[...delT].filter(([id])=>!map.has(id)).map(([id,t])=>({id,t})).slice(-500);
       const nuevo=JSON.stringify({sermones:merged,borrados},null,1)+'\n';
       const viejo=JSON.stringify({sermones:rem.sermones,borrados:rem.borrados},null,1)+'\n';
       SERMONS=merged; smLS('biblia_srv_del',null); saveLocalData(); renderSermView();
@@ -1741,7 +1744,7 @@ function smSave(id){
 function smDelete(id){
   const i=SERMONS.findIndex(x=>String(x.id)===String(id)); if(i<0) return;
   if(!confirm(`¿Borrar "${SERMONS[i].titulo}"${smToken()?' de todos tus equipos':' de este dispositivo'}?\n(Si está publicado, seguirá visible para la iglesia.)`)) return;
-  const dl=smDelPend(); dl.push(String(SERMONS[i].id)); smLS('biblia_srv_del',JSON.stringify(dl));
+  const dl=smDelPend(); dl.push({id:String(SERMONS[i].id), t:Date.now()}); smLS('biblia_srv_del',JSON.stringify(dl));
   SERMONS.splice(i,1); saveLocalData(); renderSermView(); smPrivSync();
 }
 function smExport(id){
