@@ -1557,7 +1557,8 @@ async function smPrivSync(){
       // Unir por id: gana la versión modificada más recientemente; se respetan los borrados
       const del=new Set([...rem.borrados, ...smDelPend()].map(String));
       const map=new Map();
-      [...rem.sermones, ...SERMONS].forEach(x=>{ if(!x||del.has(String(x.id))) return; const k=String(x.id), o=map.get(k);
+      let ls=[]; try{ ls=JSON.parse(localStorage.getItem('biblia_srv')||'[]'); if(!Array.isArray(ls)) ls=[]; }catch(e){ ls=[]; }
+      [...rem.sermones, ...ls, ...SERMONS].forEach(x=>{ if(!x||del.has(String(x.id))) return; const k=String(x.id), o=map.get(k);
         if(!o || (x.mod||0)>(o.mod||0)) map.set(k,x); });
       const merged=[...map.values()].sort((a,b)=>Number(a.id)-Number(b.id));
       const borrados=[...del].slice(-500);
@@ -1575,6 +1576,8 @@ async function smPrivSync(){
   finally{ SM_SYNCING=false; smSyncInfo(); if(SM_SYNC_AGAIN){ SM_SYNC_AGAIN=false; smPrivSync(); } }
 }
 window.addEventListener('online',()=>{ if(smToken()) smPrivSync(); });
+/* Si la app está abierta en otra pestaña o ventana, tomar sus cambios en vez de pisarlos */
+window.addEventListener('storage',e=>{ if(e.key==='biblia_srv' && e.newValue){ try{ const o=JSON.parse(e.newValue); if(Array.isArray(o)){ const m=new Map(SERMONS.map(x=>[String(x.id),x])); o.forEach(x=>{ const k=String(x.id), c=m.get(k); if(!c||(x.mod||0)>=(c.mod||0)) m.set(k,x); }); SERMONS=[...m.values()]; renderSermView(); } }catch(_){} } });
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible' && smToken()) smPrivSync(); });
 let PUB_SERMONS=[], SM_PUB_LOADED=false, SM_CUR=null, SM_TIMER=null, SM_T0=0, SM_LOCK=null;
 let SM_FS=18; try{ SM_FS=parseInt(localStorage.getItem('biblia_smfs'))||18; }catch(e){}
