@@ -1,7 +1,7 @@
 /* Service worker de la Biblia de Estudio RV1909 — Iglesia Pentecostal El Bosque
    Guarda la aplicación completa en el dispositivo para que funcione sin internet. */
 
-const CACHE = 'biblia-ipb-v16';
+const CACHE = 'biblia-ipb-v17';
 const ASSETS = [
   './',
   './index.html',
@@ -37,8 +37,11 @@ self.addEventListener('activate', e => {
 // Al pedir un archivo: servir primero desde el dispositivo (rápido y sin internet)
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const _u = new URL(e.request.url);
+  // Lo que no es de esta app (Himnario, Firebase, etc.) va directo a internet
+  if (_u.origin !== location.origin || !_u.pathname.startsWith(new URL('./', location.href).pathname)) return;
   // Sermones y estudios publicados: primero internet (para ver los nuevos), y si no hay, la copia guardada
-  const _p = new URL(e.request.url).pathname;
+  const _p = _u.pathname;
   const _dyn = _p.endsWith('/sermones.json') ? './sermones.json' : (_p.endsWith('/estudios.json') ? './estudios.json' : null);
   if (_dyn) {
     e.respondWith(
